@@ -14,14 +14,14 @@
 
 
 typedef struct {
-    int key_boop; //key is pressed (used to strip ev struct of other key information)
+    int key_boop; //key is pressed (used to strip ev struct of other key information in simplify() function)
 } key_event_t;
 
 key_event_t simplify(struct input_event ev) {
     if (ev.type == EV_KEY) {
         return (key_event_t) { .key_boop = ev.value }; //return a simplified struct with only the key press information
     }
-    return (key_event_t) { .key_boop = -1}; //not a key event. return invalid
+    return (key_event_t) { .key_boop = -1}; //not a valid key event. return invalid
 }
 
 
@@ -69,7 +69,6 @@ int main() {
 
         if (rc == LIBEVDEV_READ_STATUS_SUCCESS) {
 
-            // if (ev.type == EV_KEY) {
                 if (simplify(ev).key_boop == 1) {
                     printf("boop\n");
                 }
@@ -79,61 +78,18 @@ int main() {
                 else if (simplify(ev).key_boop == 0) {
                     printf("unbooped\n");
                 }
-            // }
-
-
-            // if (ev.type == EV_KEY) {
-            //     if (ev.value == 1){
-            //         printf("boop\n");
-            //     }
-            //     else if (ev.value == 2){
-            //         printf("boooop\n");
-            //     }
-            //     else if (ev.value == 0){
-            //         printf("unbooped\n");
-            //     }
-            // }
         }
-        
-        // fprintf(stderr, "yippeee\n");
-
     }
 
-    printf("Program terminated by signal.\n");
+    printf("Program terminated.\n");
     exit(EXT_ERR_TERMINATED);
 }
 
 
 
 
-/*
-
-key_event_t simplify(struct input_event ev) {
-    if (ev.type == EV_KEY) {
-        return (key_event_t) { .key_boop = ev.value }; //return a simplified struct with only the key press information
-    }
-
-    // does else need to be handled?? -------------------------------------------------
-
-}
+/* --------------- BUG LOG ---------------
 
 
-want to remove ev.type from main()
 
-if (ev.type == EV_KEY) {
-                if (simplify(ev).key_boop == 1) {
-                    printf("boop\n");
-                }
-                else if (simplify(ev).key_boop == 2) {
-                    printf("booooop\n");
-                }
-                else if (simplify(ev).key_boop == 0) {
-                    printf("unbooped\n");
-                }
-            }
-
-removing ev.type from main causes 'unbooped' to trigger, even on boooop
-
-might be losing ev.value == 2 due to if (ev.type == EV_KEY) in simplify()??
-
-*/
+   --------------------------------------- */
