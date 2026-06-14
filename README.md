@@ -31,12 +31,60 @@ all input devices for the lifetime of your session. The daemon user approach
 scopes access to a single process, a single device, with no interactive
 footprint.
 
+
+
 ### Setup
 
-The install script handles:
-- creating `naughty_cat_user` and `naughty_cat_group`
-- installing a udev rule scoping `/dev/input/event4` to `naughty_cat_group`
-- setting binary ownership and permissions
+**1. Create the group and user**
+
+```bash
+sudo groupadd naughty_cat_group
+sudo useradd -r -s /sbin/nologin -M naughty_cat_user
+sudo usermod -aG naughty_cat_group naughty_cat_user
+```
+
+**2. Create the udev rule**
+
+Create `/etc/udev/rules.d/99-naughty_cat.rules` with:
+KERNEL=="event4", GROUP="naughty_cat_group", MODE="0640"
+
+Then reload:
+
+```bash
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
+**3. Set binary ownership**
+
+```bash
+sudo chown naughty_cat_user:naughty_cat_group ./bongo
+sudo chmod 750 ./bongo
+```
+
+**4. Remove yourself from the input group if present**
+
+```bash
+sudo gpasswd -d $USER input
+```
+
+Log out and back in for group changes to take effect.
+
+**5. Verify**
+
+```bash
+groups                        # should NOT show input or naughty_cat_group
+getent group naughty_cat_group  # should show only naughty_cat_user
+ls -la /dev/input/event4      # should show group = naughty_cat_group, permissions 640
+ls -la ./bongo                # should show naughty_cat_user:naughty_cat_group, permissions 750
+getent passwd naughty_cat_user  # should show /sbin/nologin
+```
+
+**6. Run the daemon**
+
+```bash
+sudo -u naughty_cat_user ./bongo
+```
 
 You can audit the full setup in `install.sh` and the daemon source in
 `bongo_daemon.c`.
