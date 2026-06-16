@@ -27,17 +27,14 @@ artist: unkown  [ASCII art archive]
 
 #include <sys/socket.h> //used for socket to communicate with the animation layer
 #include <sys/un.h>
+#include <unistd.h> //used for unlink(), close(), and write() functions
+#include <sys/stat.h> //used to handle user access to socket
+#include "naughty_cat.h"
 
-
-#define SOCKET_NAME "/tmp/naughty_cat.sock" //path for the UNIX domain socket
 #define BACKLOG 5 //number of pending connections the socket can have before refusing new ones
 #define EXT_ERR_TERMINATED -1 //error code for when the program is terminated by a signal
-// #define BUFFER_SIZE 1 //single byte for key presses
 
 
-typedef struct {
-    int key_boop; //key is pressed (used to strip ev struct of other key information in simplify() function)
-} key_event_t;
 
 key_event_t simplify(struct input_event ev) {
     if (ev.type == EV_KEY) {
@@ -45,7 +42,6 @@ key_event_t simplify(struct input_event ev) {
     }
     return (key_event_t) { .key_boop = -1}; //not a valid key event. return invalid
 }
-
 
 volatile sig_atomic_t running = true;
 
@@ -94,6 +90,9 @@ int main() {
         close(connection_socket);
         exit(EXT_ERR_TERMINATED);
     }
+
+    //make socket accessible to animation level user group
+    chmod(SOCKET_NAME, 0660);  // owner + group only
 
     //listen
     ret = listen(connection_socket, BACKLOG); //listen for incoming connections
