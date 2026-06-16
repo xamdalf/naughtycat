@@ -21,7 +21,8 @@ A dedicated system user (`naughty_cat_user`) runs the input daemon. This user:
 - owns the daemon binary exclusively
 
 Your interactive account is not added to the `input` group or any
-input-related group.
+input-related group. It is added only to `naughty_cat_daemon_group`, which
+controls access to the IPC socket — not to any input device.
 
 ### What the daemon reads
 
@@ -39,16 +40,24 @@ all input devices for the lifetime of your session. The daemon user approach
 scopes access to a single process, a single device, with no interactive
 footprint.
 
+### Socket permissions
 
+The IPC socket at `/tmp/naughty_cat.sock` is restricted to `naughty_cat_user`
+and members of `naughty_cat_daemon_group`. Your interactive account is added to
+this group so the renderer can connect, but this group has no access to input
+devices — only to the socket file itself.
 
 ### Setup
 
-**1. Create the group and user**
+**1. Create the groups and user**
 
 ```bash
 sudo groupadd naughty_cat_group
+sudo groupadd naughty_cat_daemon_group
 sudo useradd -r -s /sbin/nologin -M naughty_cat_user
 sudo usermod -aG naughty_cat_group naughty_cat_user
+sudo usermod -aG naughty_cat_daemon_group naughty_cat_user
+sudo usermod -aG naughty_cat_daemon_group $USER
 ```
 
 **2. Create the udev rule**
@@ -66,8 +75,8 @@ sudo udevadm trigger
 **3. Set binary ownership**
 
 ```bash
-sudo chown naughty_cat_user:naughty_cat_group ./bongo
-sudo chmod 750 ./bongo
+sudo chown naughty_cat_user:naughty_cat_group ./daemon
+sudo chmod 750 ./daemon
 ```
 
 **4. Remove yourself from the input group if present**
@@ -76,22 +85,30 @@ sudo chmod 750 ./bongo
 sudo gpasswd -d $USER input
 ```
 
-Log out and back in for group changes to take effect.
+**5. Log out and back in**
 
-**5. Verify**
+Group changes don't take effect until you do.
+
+**6. Verify**
 
 ```bash
-groups                        # should NOT show input or naughty_cat_group
-getent group naughty_cat_group  # should show only naughty_cat_user
-ls -la /dev/input/event4      # should show group = naughty_cat_group, permissions 640
-ls -la ./bongo                # should show naughty_cat_user:naughty_cat_group, permissions 750
-getent passwd naughty_cat_user  # should show /sbin/nologin
+groups                            # should show naughty_cat_daemon_group, NOT input or naughty_cat_group
+getent group naughty_cat_group    # should show naughty_cat_user only
+getent group naughty_cat_daemon_group  # should show naughty_cat_user and your user
+ls -la /dev/input/event4          # group = naughty_cat_group, permissions 640
+ls -la ./daemon                   # naughty_cat_user:naughty_cat_group, permissions 750
+ls -la /tmp/naughty_cat.sock      # group = naughty_cat_daemon_group, permissions 660
+getent passwd naughty_cat_user    # should show /sbin/nologin
 ```
 
-**6. Run the daemon**
+**7. Run**
 
 ```bash
-sudo -u naughty_cat_user ./bongo
+# terminal 1 — start daemon first
+sudo -u naughty_cat_user ./daemon
+
+# terminal 2 — start renderer
+./anim
 ```
 
 You can audit the full setup in `install.sh` and the daemon source in
