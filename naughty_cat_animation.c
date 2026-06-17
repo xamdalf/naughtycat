@@ -32,8 +32,8 @@ artist: unkown  [ASCII art archive]
 #include "naughty_cat.h"
 
 #define EXT_ERR_TERMINATED -1 //error code for when the program is terminated by a signal
-#define CAT_WIDTH 432
-#define CAT_HEIGHT 180
+#define CAT_HEIGHT 80
+#define CAT_WIDTH (int)(2.4 * CAT_HEIGHT)
 
 
 volatile int last_paw = 0;
@@ -109,13 +109,17 @@ static void on_activate(GtkApplication *app, gpointer user_data) {
     gtk_layer_set_keyboard_mode(GTK_WINDOW(window), GTK_LAYER_SHELL_KEYBOARD_MODE_NONE);
     gtk_layer_set_anchor(GTK_WINDOW(window), GTK_LAYER_SHELL_EDGE_BOTTOM, TRUE);
     gtk_layer_set_anchor(GTK_WINDOW(window), GTK_LAYER_SHELL_EDGE_RIGHT, TRUE);
+    gtk_layer_set_margin(GTK_WINDOW(window), GTK_LAYER_SHELL_EDGE_TOP, 0);
     gtk_layer_set_margin(GTK_WINDOW(window), GTK_LAYER_SHELL_EDGE_BOTTOM, 0);
+    gtk_layer_set_margin(GTK_WINDOW(window), GTK_LAYER_SHELL_EDGE_RIGHT, 0);
+    gtk_layer_set_margin(GTK_WINDOW(window), GTK_LAYER_SHELL_EDGE_LEFT, 0);
 
     // image
     GtkWidget *picture;
     picture = gtk_picture_new_for_filename("idle.png");
     gtk_picture_set_content_fit(GTK_PICTURE(picture), GTK_CONTENT_FIT_CONTAIN);
-    gtk_widget_set_size_request(picture, CAT_WIDTH, CAT_HEIGHT);  // half native size, keeps ratio
+    gtk_window_set_default_size(GTK_WINDOW(window), CAT_WIDTH, CAT_HEIGHT);
+    // gtk_widget_set_size_request(picture, CAT_WIDTH, CAT_HEIGHT);  // half native size, keeps ratio
     gtk_window_set_child(GTK_WINDOW(window), picture);
 
     // watch socket
