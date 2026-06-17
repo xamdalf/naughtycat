@@ -23,6 +23,8 @@ artist: unkown  [ASCII art archive]
 
 #include <signal.h> //used to handle signals like SIGINT (Ctrl+C)
 #include <libevdev/libevdev.h>
+#include <dirent.h>
+#include <poll.h>
 #include <fcntl.h>
 
 #include <sys/socket.h> //used for socket to communicate with the animation layer
@@ -33,6 +35,7 @@ artist: unkown  [ASCII art archive]
 
 #define BACKLOG 5 //number of pending connections the socket can have before refusing new ones
 #define EXT_ERR_TERMINATED -1 //error code for when the program is terminated by a signal
+#define MAX_KEYBOARDS 3 //who runs more than 3 keyboards??? utter freaks. <3
 
 
 
@@ -52,6 +55,45 @@ void handle_signal(int sig) {
 }
 
 
+int find_keyboards(int *fds, struct libevdev **devs) {
+    struct dirent *entry;
+    DIR *dir = opendir("/dev/input");
+    if (!dir) return 0;
+
+    int count = 0;
+
+    while ((entry = readdir(dir)) != NULL && count < MAX_KEYBOARDS) {
+        if (strncmp(entry->d_name, "event", 5) != 0) continue;
+
+        char path[64];
+        snprintf(path, sizeof(path), "/dev/input/%s", entry->d_name);
+
+        int fd = open(path, O_RDONLY);
+        if (fd < 0) continue;
+
+        struct libevdev *dev = NULL;
+        if (libevdev_new_from_fd(fd, &dev) < 0) {
+            close(fd);
+            continue;
+        }
+
+        if (libevdev_has_event_type(dev, EV_KEY) &&
+            libevdev_has_event_code(dev, EV_KEY, KEY_SPACE)) {
+            fds[count] = fd;
+            devs[count] = dev;   // ← keep the dev, don't free it
+            count++;
+        } else {
+            libevdev_free(dev);
+            close(fd);
+        }
+    }
+
+    closedir(dir);
+    return count;
+}
+
+
+
 int main() {
     
     struct sigaction sa = { .sa_handler = handle_signal, .sa_flags = 0 }; // set up for signal handler when SIGINT is received (Ctrl+C)
@@ -62,15 +104,6 @@ int main() {
     int data_socket;
     struct sockaddr_un addr;
     int ret; //used to store return values from socket functions for error checking
-
-    // char buffer[BUFFER_SIZE];
-    // int w;
-    // int result;
-
-    struct input_event ev;
-    struct libevdev *dev = NULL;
-    int fd;
-    int rc = 1;
 
 
     //setup server socket for communication with the animation layer
@@ -85,7 +118,7 @@ int main() {
     strncpy(addr.sun_path, SOCKET_NAME, sizeof(addr.sun_path) - 1); //set the socket path
     unlink(SOCKET_NAME); //remove any existing socket file at the path to prevent bind errors
     ret = bind(connection_socket, (const struct sockaddr *) &addr, sizeof(addr)); //bind the socket to the address
-    if (ret < 0) {
+    if (ret < 0) { //error
         fprintf(stderr, "Failed to bind socket (%s)\n", strerror(errno));
         close(connection_socket);
         exit(EXT_ERR_TERMINATED);
@@ -103,68 +136,76 @@ int main() {
     }
 
 
-    //setup device input reading with libevdev
-    fd = open("/dev/input/event4", O_RDONLY); //open the input device file for the keyboard (this may need to be changed depending on the system and keyboard configuration)
+    int kb_fds[MAX_KEYBOARDS];
+    struct libevdev *kb_devs[MAX_KEYBOARDS];
+    int kb_count = 0;
 
-        if(fd < 0) { //error
-        fprintf(stderr, "Failed to open device (%s)\n", strerror(errno));
-        exit(EXT_ERR_TERMINATED); //exit immediately with termination error code
+    kb_count = find_keyboards(kb_fds, kb_devs);
+    if (kb_count == 0) {
+        fprintf(stderr, "Failed to find any keyboard device\n");
+        exit(EXT_ERR_TERMINATED);
     }
 
-    rc = libevdev_new_from_fd(fd, &dev);
-
-    if(rc < 0) { //error
-        fprintf(stderr, "Failed to init libevdev (%s)\n", strerror(-rc));
-        exit(EXT_ERR_TERMINATED); //exit immediately with termination error code
+    fprintf(stderr, "Found %d keyboard(s)\n", kb_count);
+    for (int i = 0; i < kb_count; i++) {
+        fprintf(stderr, "  keyboard %d: fd=%d name=%s\n", 
+            i, kb_fds[i], libevdev_get_name(kb_devs[i]));
     }
 
 
 
-    while(running) {
+    struct pollfd pollfds[MAX_KEYBOARDS];
+    for (int i = 0; i < kb_count; i++) {
+        pollfds[i].fd = kb_fds[i];
+        pollfds[i].events = POLLIN;
+    }
 
-        data_socket = accept(connection_socket, NULL, NULL); //accept an incoming connection
-        if (data_socket == -1) {
-            fprintf(stderr, "Failed to accept connection (%s)\n", strerror(errno));
-            exit(EXT_ERR_TERMINATED);         
-        }
+    while (running) {                          // OUTER: wait for renderer to connect
 
+        data_socket = accept(connection_socket, NULL, NULL);
 
-        while(running) {
+        while (running) {                      // INNER: read keyboard events
+            int ready = poll(pollfds, kb_count, -1);
+            if (ready == -1) {
+                if (errno == EINTR) break;
+                break;
+            }
 
-            rc = libevdev_next_event(dev, LIBEVDEV_READ_FLAG_NORMAL, &ev);
-            
-            if (rc == LIBEVDEV_READ_STATUS_SUCCESS) {    
-                key_event_t event = simplify(ev);
-                
-                if (event.key_boop != -1) { //only send events that are valid key presses/releases
-                    
-                    if (write(data_socket, &event, sizeof(event)) == -1) {
-                    
-                        fprintf(stderr, "Renderer disconnected (%s)\n", strerror(errno));
-                        break;  // exit inner loop, go back to accept() for new connection
+            for (int i = 0; i < kb_count; i++) {
+                if (!(pollfds[i].revents & POLLIN)) continue;
+
+                struct input_event ev;
+                int rc;
+                while ((rc = libevdev_next_event(kb_devs[i], LIBEVDEV_READ_FLAG_NORMAL, &ev)) >= 0) {   // drains one device's queue
+                    if (rc == LIBEVDEV_READ_STATUS_SYNC) {
+                        while ((rc = libevdev_next_event(kb_devs[i], LIBEVDEV_READ_FLAG_SYNC, &ev)) == LIBEVDEV_READ_STATUS_SYNC)
+                            ;                  // sync drain
+                        continue;
+                    }
+                    // handle event, write to socket
+                    key_event_t event = simplify(ev);
+                    if (event.key_boop != -1) {
+                        if (write(data_socket, &event, sizeof(event)) == -1) {
+                            fprintf(stderr, "Renderer disconnected (%s)\n", strerror(errno));
+                            goto renderer_disconnected; //ik, ik. don't hate.
+                        }
                     }
                 }
+            }   
+        }
 
-                    // if (simplify(ev).key_boop == 1) {
-                    //     printf("boop\n");
-                    //     w = write(data_socket, "1", 1); //send a byte to the animation layer to indicate a key press
-                    // }
-                    // else if (simplify(ev).key_boop == 2) {
-                    //     printf("booooop\n");
-                    //     w = write(data_socket, "2", 1); //send a byte to the animation layer to indicate a key release
-                    // }
-                    // else if (simplify(ev).key_boop == 0) {
-                    //     printf("unbooped\n");
-                    //     w = write(data_socket, "0", 1); //send a byte to the animation layer to indicate a key release
-                    // }
-            }
-        }    
+        renderer_disconnected:
+        close(data_socket);
+    } 
 
-        close(data_socket); //close the connection socket
+    // cleanup
+    for (int i = 0; i < kb_count; i++) {
+        libevdev_free(kb_devs[i]);
+        close(kb_fds[i]);
     }
 
-    close(connection_socket); //close the server socket when the program is terminating
-    unlink(SOCKET_NAME); //remove the socket file when the program is terminating
+    close(connection_socket);
+    unlink(SOCKET_NAME);
     fprintf(stderr, "Program terminated\n");
     exit(EXT_ERR_TERMINATED);
 }

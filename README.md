@@ -1,11 +1,3 @@
-```
-    |\__/,|   (`\
-  _.|o o  |_   ) )
--(((---(((--------
-
-artist: unkown  [ASCII art archive]
-```
-    
 ## Security & Input Access
 
 Naughty Cat reads raw keyboard events from `/dev/input/event4` to detect
@@ -69,7 +61,10 @@ sudo usermod -aG naughty_cat_daemon_group $USER
 **3. Create the udev rule**
 
 Create `/etc/udev/rules.d/99-naughty_cat.rules` with:
+
+```
 KERNEL=="event4", GROUP="naughty_cat_group", MODE="0640"
+```
 
 Then reload:
 
@@ -78,36 +73,65 @@ sudo udevadm control --reload-rules
 sudo udevadm trigger
 ```
 
-**4. Set binary ownership**
+**4. Install the daemon binary**
 
 ```bash
-sudo chown naughty_cat_user:naughty_cat_group ./daemon
-sudo chmod 750 ./daemon
+sudo cp ./daemon /usr/local/bin/naughty-cat-daemon
+sudo chown naughty_cat_user:naughty_cat_group /usr/local/bin/naughty-cat-daemon
+sudo chmod 750 /usr/local/bin/naughty-cat-daemon
 ```
 
-**5. Remove yourself from the input group if present**
+**5. Install the systemd service**
+
+Create `/etc/systemd/system/naughty-cat-daemon.service` with:
+
+```ini
+[Unit]
+Description=Naughty Cat Keyboard Daemon
+After=multi-user.target
+
+[Service]
+ExecStart=/usr/local/bin/naughty-cat-daemon
+User=naughty_cat_user
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then enable and start:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable naughty-cat-daemon
+sudo systemctl start naughty-cat-daemon
+```
+
+**6. Remove yourself from the input group if present**
 
 ```bash
 sudo gpasswd -d $USER input
 ```
 
-**6. Log out and back in**
+**7. Log out and back in**
 
 Group changes don't take effect until you do.
 
-**7. Verify**
+**8. Verify**
 
 ```bash
 groups                                 # should show naughty_cat_daemon_group, NOT input or naughty_cat_group
 getent group naughty_cat_group         # should show naughty_cat_user only
 getent group naughty_cat_daemon_group  # should show naughty_cat_user and your user
 ls -la /dev/input/event4               # group = naughty_cat_group, permissions 640
-ls -la ./daemon                        # naughty_cat_user:naughty_cat_group, permissions 750
+ls -Z /usr/local/bin/naughty-cat-daemon  # should show bin_t SELinux context
 ls -la /tmp/naughty_cat.sock           # group = naughty_cat_daemon_group, permissions 660
 getent passwd naughty_cat_user         # should show /sbin/nologin
+sudo systemctl status naughty-cat-daemon  # should show active (running)
 ```
 
-**8. Build**
+**9. Build**
 
 ```bash
 # daemon
@@ -121,14 +145,25 @@ gcc -o anim naughty_cat_animation.c \
     -I.
 ```
 
-**9. Run**
+**10. Run**
+
+The daemon starts automatically on boot as a system service. To launch the renderer:
 
 ```bash
-# terminal 1 — start daemon first
-sudo -u naughty_cat_user ./daemon
-
-# terminal 2 — start renderer
 ./anim
+```
+
+To stop the daemon:
+
+```bash
+sudo systemctl stop naughty-cat-daemon
+sudo systemctl disable naughty-cat-daemon  # prevent autostart on boot
+```
+
+To check daemon logs:
+
+```bash
+journalctl -u naughty-cat-daemon
 ```
 
 ### Compatibility
@@ -139,5 +174,5 @@ Requires a Wayland compositor that supports the wlr-layer-shell protocol:
 - Sway ✓
 - GNOME ✗
 
-You can audit the full setup in `install.sh` and the daemon source in
-`naughty_cat_daemon.c`.
+You can audit the full setup in the daemon source `naughty_cat_daemon.c` and
+renderer source `naughty_cat_animation.c`.

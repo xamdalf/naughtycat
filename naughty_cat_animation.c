@@ -36,9 +36,11 @@ artist: unkown  [ASCII art archive]
 #define CAT_WIDTH (int)(2.4 * CAT_HEIGHT)
 
 
-volatile int last_paw = 0;
 int data_socket;
+volatile int last_paw = 0;
 
+static int cat_x = 0;   // distance from right edge
+static int cat_y = 25;    // distance from bottom edge
 
 
 void handle_signal(int sig) {
@@ -89,9 +91,20 @@ gboolean on_socket_data(gint fd, GIOCondition condition, gpointer userdata) {
 }
 
 
+
+void on_drag_update(GtkGestureDrag *gesture, double dx, double dy, gpointer userdata) {
+    GtkWindow *window = GTK_WINDOW(userdata);
+    
+    cat_x -= (int)dx;   // right anchor — moving right decreases margin
+    cat_y -= (int)dy;   // bottom anchor — moving down decreases margin
+    
+    gtk_layer_set_margin(window, GTK_LAYER_SHELL_EDGE_RIGHT, cat_x);
+    gtk_layer_set_margin(window, GTK_LAYER_SHELL_EDGE_BOTTOM, cat_y);
+}
+
 static void on_activate(GtkApplication *app, gpointer user_data) {
 
-    // CSS
+    //CSS
     GtkCssProvider *css = gtk_css_provider_new();
     gtk_css_provider_load_from_string(css, "window { background: transparent; }");
     gtk_style_context_add_provider_for_display(
@@ -100,21 +113,21 @@ static void on_activate(GtkApplication *app, gpointer user_data) {
         GTK_STYLE_PROVIDER_PRIORITY_APPLICATION
     );
 
-    // window
+    //window
     GtkWidget *window = gtk_application_window_new(app);
 
-    // layer shell
+    //layer shell
     gtk_layer_init_for_window(GTK_WINDOW(window));
     gtk_layer_set_layer(GTK_WINDOW(window), GTK_LAYER_SHELL_LAYER_OVERLAY);
     gtk_layer_set_keyboard_mode(GTK_WINDOW(window), GTK_LAYER_SHELL_KEYBOARD_MODE_NONE);
     gtk_layer_set_anchor(GTK_WINDOW(window), GTK_LAYER_SHELL_EDGE_BOTTOM, TRUE);
     gtk_layer_set_anchor(GTK_WINDOW(window), GTK_LAYER_SHELL_EDGE_RIGHT, TRUE);
     gtk_layer_set_margin(GTK_WINDOW(window), GTK_LAYER_SHELL_EDGE_TOP, 0);
-    gtk_layer_set_margin(GTK_WINDOW(window), GTK_LAYER_SHELL_EDGE_BOTTOM, 0);
-    gtk_layer_set_margin(GTK_WINDOW(window), GTK_LAYER_SHELL_EDGE_RIGHT, 0);
+    gtk_layer_set_margin(GTK_WINDOW(window), GTK_LAYER_SHELL_EDGE_BOTTOM, cat_y);
+    gtk_layer_set_margin(GTK_WINDOW(window), GTK_LAYER_SHELL_EDGE_RIGHT, cat_x);
     gtk_layer_set_margin(GTK_WINDOW(window), GTK_LAYER_SHELL_EDGE_LEFT, 0);
 
-    // image
+    //image
     GtkWidget *picture;
     picture = gtk_picture_new_for_filename("idle.png");
     gtk_picture_set_content_fit(GTK_PICTURE(picture), GTK_CONTENT_FIT_CONTAIN);
@@ -122,10 +135,15 @@ static void on_activate(GtkApplication *app, gpointer user_data) {
     // gtk_widget_set_size_request(picture, CAT_WIDTH, CAT_HEIGHT);  // half native size, keeps ratio
     gtk_window_set_child(GTK_WINDOW(window), picture);
 
-    // watch socket
+    //drag window
+    GtkGesture *drag = gtk_gesture_drag_new();
+    gtk_widget_add_controller(GTK_WIDGET(picture), GTK_EVENT_CONTROLLER(drag));
+    g_signal_connect(drag, "drag-update", G_CALLBACK(on_drag_update), window);
+
+    //watch socket
     g_unix_fd_add(data_socket, G_IO_IN, on_socket_data, picture);
     // click-through — empty input region
-    gtk_widget_set_can_target(window, FALSE);  // window doesn't receive input events
+    gtk_widget_set_can_target(window, TRUE);  // window doesn't receive input events
     gtk_widget_set_can_focus(window, FALSE);   // window can't receive keyboard focus
     gtk_widget_set_visible(window, TRUE);
 }
