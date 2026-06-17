@@ -49,7 +49,13 @@ devices — only to the socket file itself.
 
 ### Setup
 
-**1. Create the groups and user**
+**1. Install dependencies**
+
+```bash
+sudo dnf install gtk4-devel gtk4-layer-shell gtk4-layer-shell-devel
+```
+
+**2. Create the groups and user**
 
 ```bash
 sudo groupadd naughty_cat_group
@@ -60,7 +66,7 @@ sudo usermod -aG naughty_cat_daemon_group naughty_cat_user
 sudo usermod -aG naughty_cat_daemon_group $USER
 ```
 
-**2. Create the udev rule**
+**3. Create the udev rule**
 
 Create `/etc/udev/rules.d/99-naughty_cat.rules` with:
 KERNEL=="event4", GROUP="naughty_cat_group", MODE="0640"
@@ -72,36 +78,50 @@ sudo udevadm control --reload-rules
 sudo udevadm trigger
 ```
 
-**3. Set binary ownership**
+**4. Set binary ownership**
 
 ```bash
 sudo chown naughty_cat_user:naughty_cat_group ./daemon
 sudo chmod 750 ./daemon
 ```
 
-**4. Remove yourself from the input group if present**
+**5. Remove yourself from the input group if present**
 
 ```bash
 sudo gpasswd -d $USER input
 ```
 
-**5. Log out and back in**
+**6. Log out and back in**
 
 Group changes don't take effect until you do.
 
-**6. Verify**
+**7. Verify**
 
 ```bash
-groups                            # should show naughty_cat_daemon_group, NOT input or naughty_cat_group
-getent group naughty_cat_group    # should show naughty_cat_user only
+groups                                 # should show naughty_cat_daemon_group, NOT input or naughty_cat_group
+getent group naughty_cat_group         # should show naughty_cat_user only
 getent group naughty_cat_daemon_group  # should show naughty_cat_user and your user
-ls -la /dev/input/event4          # group = naughty_cat_group, permissions 640
-ls -la ./daemon                   # naughty_cat_user:naughty_cat_group, permissions 750
-ls -la /tmp/naughty_cat.sock      # group = naughty_cat_daemon_group, permissions 660
-getent passwd naughty_cat_user    # should show /sbin/nologin
+ls -la /dev/input/event4               # group = naughty_cat_group, permissions 640
+ls -la ./daemon                        # naughty_cat_user:naughty_cat_group, permissions 750
+ls -la /tmp/naughty_cat.sock           # group = naughty_cat_daemon_group, permissions 660
+getent passwd naughty_cat_user         # should show /sbin/nologin
 ```
 
-**7. Run**
+**8. Build**
+
+```bash
+# daemon
+gcc -o daemon naughty_cat_daemon.c \
+    $(pkg-config --cflags --libs libevdev) \
+    -I.
+
+# renderer
+gcc -o anim naughty_cat_animation.c \
+    $(pkg-config --cflags --libs gtk4 gtk4-layer-shell-0) \
+    -I.
+```
+
+**9. Run**
 
 ```bash
 # terminal 1 — start daemon first
@@ -111,5 +131,13 @@ sudo -u naughty_cat_user ./daemon
 ./anim
 ```
 
+### Compatibility
+
+Requires a Wayland compositor that supports the wlr-layer-shell protocol:
+- KDE Plasma ✓
+- Hyprland ✓
+- Sway ✓
+- GNOME ✗
+
 You can audit the full setup in `install.sh` and the daemon source in
-`bongo_daemon.c`.
+`naughty_cat_daemon.c`.
