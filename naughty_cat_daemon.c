@@ -35,7 +35,7 @@ artist: unkown  [ASCII art archive]
 
 #define BACKLOG 5 //number of pending connections the socket can have before refusing new ones
 #define EXT_ERR_TERMINATED -1 //error code for when the program is terminated by a signal
-#define MAX_KEYBOARDS 3 //who runs more than 3 keyboards??? utter freaks. <3
+#define MAX_KEYBOARDS 20 //who runs more than 3 keyboards??? utter freaks. <3
 
 
 
@@ -68,21 +68,26 @@ int find_keyboards(int *fds, struct libevdev **devs) {
         char path[64];
         snprintf(path, sizeof(path), "/dev/input/%s", entry->d_name);
 
-        int fd = open(path, O_RDONLY);
-        if (fd < 0) continue;
+        int fd = open(path, O_RDONLY | O_NONBLOCK);
+        if (fd < 0) {
+            fprintf(stderr, "  skipped %s: open failed (%s)\n", path, strerror(errno));
+            continue;
+        }
 
         struct libevdev *dev = NULL;
         if (libevdev_new_from_fd(fd, &dev) < 0) {
+            fprintf(stderr, "  skipped %s: libevdev failed\n", path);
             close(fd);
             continue;
         }
 
-        if (libevdev_has_event_type(dev, EV_KEY) &&
-            libevdev_has_event_code(dev, EV_KEY, KEY_SPACE)) {
+        if (libevdev_has_event_type(dev, EV_KEY)) {
+            fprintf(stderr, "  accepted %s: %s\n", path, libevdev_get_name(dev));
             fds[count] = fd;
-            devs[count] = dev;   // ← keep the dev, don't free it
+            devs[count] = dev;
             count++;
         } else {
+            fprintf(stderr, "  skipped %s: no EV_KEY (%s)\n", path, libevdev_get_name(dev));
             libevdev_free(dev);
             close(fd);
         }
@@ -173,6 +178,8 @@ int main() {
 
             for (int i = 0; i < kb_count; i++) {
                 if (!(pollfds[i].revents & POLLIN)) continue;
+
+                fprintf(stderr, "event from device %d: %s\n", i, libevdev_get_name(kb_devs[i]));
 
                 struct input_event ev;
                 int rc;
