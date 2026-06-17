@@ -41,6 +41,15 @@ volatile int last_paw = 0;
 
 static int cat_x = 0;   // distance from right edge
 static int cat_y = 25;    // distance from bottom edge
+static volatile int flipped = 0;
+
+typedef struct {
+    GtkWidget *picture;
+    GtkWindow *window;
+    int screen_width;
+} DragData;
+
+
 
 
 void handle_signal(int sig) {
@@ -56,6 +65,15 @@ void set_frame(GtkWidget *picture, const char *filename) {
     gtk_picture_set_filename(GTK_PICTURE(picture), filename);
 }
 
+void refresh_frame(GtkWidget *picture) {
+    if (last_paw == 0) {
+        set_frame(picture, flipped ? "idle_flipped.png" : "idle.png");
+    } else {
+        // keep current boop frame but with correct orientation
+        set_frame(picture, flipped ? "left_boop_flipped.png" : "left_boop.png");
+    }
+}
+
 gboolean on_socket_data(gint fd, GIOCondition condition, gpointer userdata) {
     GtkWidget *picture = GTK_WIDGET(userdata);
     key_event_t event;
@@ -65,42 +83,80 @@ gboolean on_socket_data(gint fd, GIOCondition condition, gpointer userdata) {
         fprintf(stderr, "Daemon disconnected\n");
         return G_SOURCE_REMOVE;
     }
-
+    
     switch (event.key_boop) {
         case 0:
-            set_frame(picture, "idle.png");
+            set_frame(picture, flipped ? "idle_flipped.png" : "idle.png");
             printf("IDLE\n");
             break;
         case 1:
-            last_paw = !last_paw;
-            set_frame(picture, last_paw ? "left_boop.png" : "right_boop.png");
-            
-            if (last_paw) {
-                printf("left boop\n");
+            if (flipped) {
+                last_paw = !last_paw;
+                set_frame(picture, last_paw ? "left_boop_flipped.png" : "right_boop_flipped.png");
+                
+                if (last_paw) {
+                    printf("left boop\n");
+                }
+                else {
+                    printf("right boop\n");
+                }
             }
             else {
-                printf("right boop\n");
+                last_paw = !last_paw;
+                set_frame(picture, last_paw ? "left_boop.png" : "right_boop.png");
+                
+                if (last_paw) {
+                    printf("left boop\n");
+                }
+                else {
+                    printf("right boop\n");
+                }
             }
+            
             break;
         case 2:
-            last_paw = !last_paw;
-            set_frame(picture, last_paw ? "left_boop.png" : "right_boop.png");
-            printf("boooop\n");
+            if (flipped) {
+                last_paw = !last_paw;
+                set_frame(picture, last_paw ? "left_boop_flipped.png" : "right_boop_flipped.png");
+                
+                printf("booooop\n");
+            }
+            else {
+                last_paw = !last_paw;
+                set_frame(picture, last_paw ? "left_boop.png" : "right_boop.png");
+                
+                printf("booooop\n");
+            }
     }
     return G_SOURCE_CONTINUE;
 }
 
 
+void update_flip(int screen_width) {
+    flipped = (cat_x > screen_width / 2);
+}
+
 
 void on_drag_update(GtkGestureDrag *gesture, double dx, double dy, gpointer userdata) {
-    GtkWindow *window = GTK_WINDOW(userdata);
-    
-    cat_x -= (int)dx;   // right anchor — moving right decreases margin
-    cat_y -= (int)dy;   // bottom anchor — moving down decreases margin
-    
-    gtk_layer_set_margin(window, GTK_LAYER_SHELL_EDGE_RIGHT, cat_x);
-    gtk_layer_set_margin(window, GTK_LAYER_SHELL_EDGE_BOTTOM, cat_y);
+    DragData *data = (DragData *)userdata;
+
+    cat_x -= (int)dx;
+    cat_y -= (int)dy;
+
+    if (cat_x < 0) cat_x = 0;
+    if (cat_y < 0) cat_y = 0;
+
+    int was_flipped = flipped;
+    update_flip(data->screen_width);
+    if (flipped != was_flipped) {
+        refresh_frame(data->picture);
+    }
+    gtk_layer_set_margin(data->window, GTK_LAYER_SHELL_EDGE_RIGHT, cat_x);
+    gtk_layer_set_margin(data->window, GTK_LAYER_SHELL_EDGE_BOTTOM, cat_y);
+    update_flip(data->screen_width);
 }
+
+
 
 static void on_activate(GtkApplication *app, gpointer user_data) {
 
@@ -113,8 +169,17 @@ static void on_activate(GtkApplication *app, gpointer user_data) {
         GTK_STYLE_PROVIDER_PRIORITY_APPLICATION
     );
 
+    
     //window
     GtkWidget *window = gtk_application_window_new(app);
+    
+    //get screen width
+    GdkDisplay *display = gdk_display_get_default();
+    GdkMonitor *monitor = g_list_model_get_item(gdk_display_get_monitors(display), 0);
+    GdkRectangle geometry;
+    gdk_monitor_get_geometry(monitor, &geometry);
+    int screen_width = geometry.width;
+
 
     //layer shell
     gtk_layer_init_for_window(GTK_WINDOW(window));
@@ -138,15 +203,22 @@ static void on_activate(GtkApplication *app, gpointer user_data) {
     //drag window
     GtkGesture *drag = gtk_gesture_drag_new();
     gtk_widget_add_controller(GTK_WIDGET(picture), GTK_EVENT_CONTROLLER(drag));
-    g_signal_connect(drag, "drag-update", G_CALLBACK(on_drag_update), window);
+    DragData *drag_data = g_new(DragData, 1);
+    drag_data->picture = picture;
+    drag_data->window = GTK_WINDOW(window);
+    drag_data->screen_width = screen_width;
+
+    g_signal_connect_data(drag, "drag-update", G_CALLBACK(on_drag_update), drag_data,
+                      (GClosureNotify)g_free, 0);
 
     //watch socket
     g_unix_fd_add(data_socket, G_IO_IN, on_socket_data, picture);
     // click-through — empty input region
-    gtk_widget_set_can_target(window, TRUE);  // window doesn't receive input events
     gtk_widget_set_can_focus(window, FALSE);   // window can't receive keyboard focus
+    gtk_widget_set_can_target(window, TRUE);  // window can't receive mouse input events
     gtk_widget_set_visible(window, TRUE);
 }
+
 
 
 
