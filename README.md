@@ -1,3 +1,12 @@
+'''
+    |\__/,|   (`\
+  _.|o o  |_   ) )
+-(((---(((--------
+
+artist: unkown  [ASCII art archive]
+'''
+
+
 ## Security & Input Access
 
 Naughty Cat reads raw keyboard events from `/dev/input/event4` to detect
