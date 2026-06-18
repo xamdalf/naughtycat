@@ -40,7 +40,7 @@ int data_socket;
 volatile int last_paw = 0;
 
 static int cat_x = 0;   // distance from right edge
-static int cat_y = 25;    // distance from bottom edge
+static int cat_y = 30;    // distance from bottom edge
 static volatile int flipped = 0;
 
 typedef struct {
@@ -48,7 +48,6 @@ typedef struct {
     GtkWindow *window;
     int screen_width;
 } DragData;
-
 
 
 
@@ -66,13 +65,10 @@ void set_frame(GtkWidget *picture, const char *filename) {
 }
 
 void refresh_frame(GtkWidget *picture) {
-    if (last_paw == 0) {
-        set_frame(picture, flipped ? "idle_flipped.png" : "idle.png");
-    } else {
-        // keep current boop frame but with correct orientation
-        set_frame(picture, flipped ? "left_boop_flipped.png" : "left_boop.png");
-    }
+    set_frame(picture, flipped ? "idle_flipped.png" : "idle.png");
+    printf("flipped!\n");
 }
+
 
 gboolean on_socket_data(gint fd, GIOCondition condition, gpointer userdata) {
     GtkWidget *picture = GTK_WIDGET(userdata);
@@ -153,7 +149,6 @@ void on_drag_update(GtkGestureDrag *gesture, double dx, double dy, gpointer user
     }
     gtk_layer_set_margin(data->window, GTK_LAYER_SHELL_EDGE_RIGHT, cat_x);
     gtk_layer_set_margin(data->window, GTK_LAYER_SHELL_EDGE_BOTTOM, cat_y);
-    update_flip(data->screen_width);
 }
 
 
@@ -253,3 +248,22 @@ int main(int argc, char *argv[]) {
     close(data_socket);
     return status;
 }
+
+
+/* --------------- TO DO -----------------
+
+
+
+   --------------------------------------- */
+
+
+
+/* --------------- BUG LOG ---------------
+
+--the window dimensions aren't sized correctly: 
+the left side goes out of the screen, 
+but the right side seems to be well placed?
+
+^need to adjust window dimension definitions
+
+   --------------------------------------- */

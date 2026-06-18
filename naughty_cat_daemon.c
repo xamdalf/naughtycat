@@ -22,6 +22,7 @@ artist: unkown  [ASCII art archive]
 #include <errno.h>
 
 #include <signal.h> //used to handle signals like SIGINT (Ctrl+C)
+
 #include <libevdev/libevdev.h>
 #include <dirent.h>
 #include <poll.h>
@@ -179,7 +180,7 @@ int main() {
             for (int i = 0; i < kb_count; i++) {
                 if (!(pollfds[i].revents & POLLIN)) continue;
 
-                fprintf(stderr, "event from device %d: %s\n", i, libevdev_get_name(kb_devs[i]));
+                // fprintf(stderr, "event from device %d: %s\n", i, libevdev_get_name(kb_devs[i])); //debug line
 
                 struct input_event ev;
                 int rc;
