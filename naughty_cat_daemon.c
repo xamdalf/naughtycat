@@ -169,6 +169,10 @@ int main() {
     while (running) {                          // OUTER: wait for renderer to connect
 
         data_socket = accept(connection_socket, NULL, NULL);
+        if (data_socket < 0) {
+            if (errno == EINTR) continue;
+            break; //error
+        }
 
         while (running) {                      // INNER: read keyboard events
             int ready = poll(pollfds, kb_count, -1);
